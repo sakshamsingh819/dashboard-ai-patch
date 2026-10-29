@@ -1,0 +1,7 @@
+{
+  "outputDirectory": "public",
+  "redirects": [
+    { "source": "/prompt2patch", "destination": "/prompt2patch/", "permanent": false },
+    { "source": "/", "destination": "/prompt2patch/", "permanent": false }
+  ]
+}

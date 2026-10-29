@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Prompt2Patch – Admin</title>
+<style>
+body{margin:0;background:#0a0810;color:#fff;font-family:"Segoe UI",system-ui,Arial,sans-serif;padding:16px;max-width:980px;margin:auto}
+h1{color:#ffb347;margin:6px 0}h2{color:#ff8a1f;margin:0 0 8px;font-size:17px}
+section{border:1px solid rgba(255,138,31,.45);border-radius:12px;padding:12px 16px;margin-bottom:14px;background:#120e1a}
+button{font:inherit;font-weight:600;color:#fff;background:rgba(255,138,31,.2);border:1px solid rgba(255,138,31,.6);border-radius:9px;padding:7px 12px;cursor:pointer;margin:3px}
+button:hover{background:rgba(255,138,31,.45)}button.p{background:#ff8a1f;color:#1a0d00}button.on{outline:2px solid #ffb347}
+input,select{font:inherit;background:#0a0810;color:#fff;border:1px solid rgba(255,138,31,.5);border-radius:8px;padding:7px;margin:3px}
+table{width:100%;border-collapse:collapse}td,th{padding:3px;text-align:left}
+.slots{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:10px}.slot{border:1px dashed rgba(255,138,31,.5);border-radius:10px;padding:8px}
+.slot img{width:100%;height:130px;object-fit:contain;background:#000;border-radius:8px}.empty{height:130px;display:flex;align-items:center;justify-content:center;color:#888;background:#000;border-radius:8px}
+#gate{max-width:340px;margin:20vh auto;text-align:center}#log{color:#9ad;font-size:13px;min-height:1.4em}#st{font-size:13px}.note{color:#aaa;font-size:13px}
+</style>
+</head>
+<body>
+<div id="gate"><h2>Admin login</h2><input type="password" id="pw" placeholder="Password"> <button class="p" id="go">Enter</button><p id="err" style="color:#f66"></p></div>
+<main id="app" hidden>
+<h1>Prompt2Patch · Admin <button id="out" style="float:right">Log out</button></h1>
+<div id="st"></div><div id="log"></div>
+
+<section><h2>1 · Scenes (projector follows within ~3 s)</h2>
+<button data-s="wait">🎬 Waiting (poster + soft BGM, timer hidden)</button>
+<button data-s="lamp">🪔 Lamp lighting (traditional music)</button>
+<button data-s="event">⚡ Event (upbeat music + timer)</button>
+<button data-s="off">⏹ Silence</button><br>
+Event music: <select id="mood"><option value="groove">Groove (light, hopping)</option><option value="hype">Hype (livelier)</option><option value="focus">Focus (calm)</option></select>
+<button id="tv1">Show timer</button><button id="tv0">Hide timer</button></section>
+
+<section><h2>2 · Timer <span id="tl" style="color:#ffb347"></span></h2>
+H <input id="h" type="number" min="0" max="23" value="2" style="width:60px"> M <input id="m" type="number" min="0" max="59" value="15" style="width:60px"> S <input id="s" type="number" min="0" max="59" value="0" style="width:60px">
+<button id="tset">Set</button> <button class="p" id="tstart">▶ Start</button><button id="tpause">⏸ Pause</button><button id="treset">↺ Reset</button><button id="tm">−1 min</button><button id="tp">+1 min</button></section>
+
+<section><h2>3 · Hint images (up to 5, shown at equal intervals while the timer runs)</h2>
+<p class="note">With N hints and a total time T, hint k appears at k × T/(N+1). Show each for <input id="hs" type="number" min="5" max="120" value="25" style="width:64px"> seconds <button id="hsb">Save</button></p>
+<div class="slots" id="slots"></div></section>
+
+<section><h2>4 · Team scores</h2>
+<input id="tn" placeholder="Team name"><input id="ts" type="number" placeholder="Score" style="width:90px"><button class="p" id="add">Add team</button>
+<table id="tb"></table></section>
+
+<section><h2>5 · Results reveal (projector)</h2>
+<button id="teaser">1 · Teaser</button><button class="p" id="rev">2 · Start the reveal animation (~30 s)</button><button id="lbh">Hide results</button></section>
+</main>
+<script>
+"use strict";
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+let tok=sessionStorage.getItem("p2p-token")||"",S=null,T=[],seen=0,skew=0;
+const log=m=>$("log").textContent=m+" · "+new Date().toLocaleTimeString();
+async function api(body){
+  const r=await fetch("/api/admin",{method:"POST",headers:{"Content-Type":"application/json",Authorization:"Bearer "+tok},body:JSON.stringify(body)});
+  const j=await r.json().catch(()=>({}));
+  if(r.status===401){logout();throw new Error("Session expired, log in again")}
+  if(!r.ok)throw new Error(j.error||"Server error "+r.status);return j;
+}
+const act=(body,msg)=>api(body).then(j=>{if(j.s){S=j.s}log(msg||"Done");draw()}).catch(e=>log("⚠ "+e.message));
+function logout(){sessionStorage.removeItem("p2p-token");tok="";$("app").hidden=true;$("gate").hidden=false}
+async function login(){
+  try{const r=await fetch("/api/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({password:$("pw").value})});
+    const j=await r.json();if(!r.ok)throw new Error(j.error||"Login failed");tok=j.token;sessionStorage.setItem("p2p-token",tok);start()}
+  catch(e){$("err").textContent=e.message}
+}
+$("go").onclick=login;$("pw").onkeydown=e=>{if(e.key==="Enter")login()};$("out").onclick=logout;
+async function load(){const j=await api({a:"get"});S=j.s;T=j.scores;seen=j.seen;skew=j.now-Date.now();draw();status()}
+function start(){$("gate").hidden=true;$("app").hidden=false;load().catch(e=>log("⚠ "+e.message))}
+if(tok)start();
+setInterval(()=>{if(tok)api({a:"get"}).then(j=>{S=j.s;seen=j.seen;skew=j.now-Date.now();status()}).catch(()=>{})},5000);
+setInterval(()=>{if(S)tl()},500);
+
+function status(){const ago=(Date.now()+skew-seen)/1000;$("st").innerHTML=seen&&ago<20?"🟢 Projector connected":"🔴 Projector not seen recently (open the projector page and click once on it)"}
+function tl(){const t=S.timer,l=t.running?Math.max(0,Math.ceil((t.endAt-(Date.now()+skew))/1000)):t.left;$("tl").textContent=[Math.floor(l/3600),Math.floor(l%3600/60),l%60].map(n=>String(n).padStart(2,"0")).join(":")+(t.running?" ▶":" ⏸")}
+document.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>act({a:"scene",v:b.dataset.s},"Scene: "+b.dataset.s));
+$("mood").onchange=()=>act({a:"mood",v:$("mood").value},"Event music: "+$("mood").value);
+$("tv1").onclick=()=>act({a:"timerVis",v:true},"Timer shown");$("tv0").onclick=()=>act({a:"timerVis",v:false},"Timer hidden");
+$("tset").onclick=()=>act({a:"tset",sec:(+$("h").value||0)*3600+(+$("m").value||0)*60+(+$("s").value||0)},"Timer set");
+$("tstart").onclick=()=>act({a:"tstart"},"Timer started");$("tpause").onclick=()=>act({a:"tpause"},"Timer paused");$("treset").onclick=()=>act({a:"treset"},"Timer reset");
+$("tm").onclick=()=>act({a:"tadj",min:-1});$("tp").onclick=()=>act({a:"tadj",min:1});
+$("hsb").onclick=()=>act({a:"hintSecs",v:+$("hs").value},"Hint duration saved");
+
+async function shrink(file){
+  const img=await createImageBitmap(file),k=Math.min(1,1280/Math.max(img.width,img.height)),c=document.createElement("canvas");
+  c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);const x=c.getContext("2d");x.fillStyle="#fff";x.fillRect(0,0,c.width,c.height);x.drawImage(img,0,0,c.width,c.height);
+  let q=.85,d;do{d=c.toDataURL("image/jpeg",q);q-=.1}while(d.length>600000&&q>.3);return d;
+}
+function draw(){
+  if(!S)return;$("mood").value=S.mood;$("hs").value=S.hintSecs;
+  document.querySelectorAll("[data-s]").forEach(b=>b.classList.toggle("on",b.dataset.s===S.scene));
+  const t=S.timer.total;$("h").value=Math.floor(t/3600);$("m").value=Math.floor(t%3600/60);$("s").value=t%60;
+  $("slots").innerHTML=S.hints.map((h,i)=>'<div class="slot"><b>Hint '+(i+1)+'</b>'+(h?'<img src="/api/img?i='+i+'&v='+h.v+'">':'<div class="empty">empty</div>')+
+    '<input type="file" accept="image/*" id="f'+i+'" style="width:95%"><input id="c'+i+'" placeholder="Caption (optional)" value="'+esc(h?h.caption:"")+'" style="width:95%">'+
+    '<button class="p" onclick="put('+i+')">Upload / replace</button>'+(h?'<button onclick="cap('+i+')">Save caption</button><button onclick="now('+i+')">Show now</button><button onclick="del('+i+')">Delete</button>':"")+'</div>').join("");
+  const rows=T.map((x,i)=>({...x,i})).sort((a,b)=>b.score-a.score);
+  $("tb").innerHTML="<tr><th>#</th><th>Team</th><th>Score</th><th></th></tr>"+rows.map((x,r)=>'<tr><td>'+(r+1)+'</td><td><input value="'+esc(x.name)+'" onchange="T['+x.i+'].name=this.value;saveT()"></td><td><input type="number" value="'+x.score+'" style="width:90px" onchange="T['+x.i+'].score=+this.value;saveT()"></td><td><button onclick="T.splice('+x.i+',1);saveT()">✕</button></td></tr>').join("");
+  tl();
+}
+async function put(i){const f=$("f"+i).files[0];if(!f)return log("Choose an image first");log("Uploading…");
+  try{await act({a:"hintPut",i,caption:$("c"+i).value,data:await shrink(f)},"Hint "+(i+1)+" uploaded")}catch(e){log("⚠ "+e.message)}}
+const cap=i=>act({a:"hintCap",i,caption:$("c"+i).value},"Caption saved");
+const now=i=>act({a:"hintNow",i},"Hint "+(i+1)+" sent to projector");
+const del=i=>confirm("Delete hint "+(i+1)+"?")&&act({a:"hintDel",i},"Hint deleted");
+function saveT(){api({a:"scores",teams:T}).then(()=>{log("Scores saved");draw()}).catch(e=>log("⚠ "+e.message))}
+$("add").onclick=()=>{const n=$("tn").value.trim();if(!n)return;T.push({name:n,score:+$("ts").value||0});$("tn").value=$("ts").value="";saveT()};
+$("teaser").onclick=()=>act({a:"teaser"},"Teaser sent");
+$("rev").onclick=()=>act({a:"reveal"},"Reveal started on the projector");
+$("lbh").onclick=()=>act({a:"lbhide"},"Results hidden");
+</script>
+</body>
+</html>
