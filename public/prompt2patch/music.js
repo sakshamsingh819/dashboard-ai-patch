@@ -23,19 +23,19 @@ function setup(){
   ctx=new (g.AudioContext||g.webkitAudioContext)();
   master=ctx.createGain();master.gain.value=0;
   const comp=ctx.createDynamicsCompressor();
-  comp.threshold.value=-20;comp.knee.value=12;comp.ratio.value=6;     // keeps peaks from getting loud
+  comp.threshold.value=-15;comp.knee.value=15;comp.ratio.value=4;comp.attack.value=0.005;comp.release.value=0.2;
   verb=ctx.createConvolver();
-  const n=Math.floor(ctx.sampleRate*3.5),buf=ctx.createBuffer(2,n,ctx.sampleRate);
-  for(let c=0;c<2;c++){const d=buf.getChannelData(c);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,2.6)}
+  const n=Math.floor(ctx.sampleRate*0.75),buf=ctx.createBuffer(2,n,ctx.sampleRate);
+  for(let c=0;c<2;c++){const d=buf.getChannelData(c);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.exp(-i/(ctx.sampleRate*0.18))}
   verb.buffer=buf;
-  const vg=ctx.createGain();vg.gain.value=.5;
-  delay=ctx.createDelay(2);delay.delayTime.value=.375;
-  const fb=ctx.createGain();fb.gain.value=.3;
-  const dg=ctx.createGain();dg.gain.value=.35;
-  delay.connect(fb);fb.connect(delay);delay.connect(dg);dg.connect(verb);
-  const vlp=ctx.createBiquadFilter();vlp.type="lowpass";vlp.frequency.value=2000;verb.connect(vlp);vlp.connect(vg);vg.connect(master);
+  const vg=ctx.createGain();vg.gain.value=.25;
+  delay=ctx.createDelay(1);delay.delayTime.value=.375;
+  const fb=ctx.createGain();fb.gain.value=.25;
+  const dg=ctx.createGain();dg.gain.value=.25;
+  delay.connect(fb);fb.connect(delay);delay.connect(dg);dg.connect(master);
+  const vlp=ctx.createBiquadFilter();vlp.type="lowpass";vlp.frequency.value=2200;verb.connect(vlp);vlp.connect(vg);vg.connect(master);
   dry=ctx.createGain();dry.gain.value=.75;dry.connect(master);
-  const tone=ctx.createBiquadFilter();tone.type="lowpass";tone.frequency.value=3000;tone.Q.value=.5;master.connect(tone);tone.connect(comp);comp.connect(ctx.destination);
+  const tone=ctx.createBiquadFilter();tone.type="lowpass";tone.frequency.value=3500;tone.Q.value=.5;master.connect(tone);tone.connect(comp);comp.connect(ctx.destination);
   const nb=Math.floor(ctx.sampleRate),b2=ctx.createBuffer(1,nb,ctx.sampleRate),d2=b2.getChannelData(0);
   for(let i=0;i<nb;i++)d2[i]=Math.random()*2-1;
   noiseBuf=b2;
@@ -48,7 +48,7 @@ function voice(type,f,t,a,peak,hold,rel,send,dest){
   gn.gain.setValueAtTime(peak,t+a+hold);gn.gain.linearRampToValueAtTime(0,t+a+hold+rel);
   o.connect(lp);lp.connect(gn);gn.connect(dest||dry);
   if(!dest){gn.connect(verb);if(send)gn.connect(delay)}
-  o.start(t);o.stop(t+a+hold+rel+.1);
+  o.start(t);o.stop(t+a+hold+rel+.05);
 }
 function noise(t,dur,type,freq,peak,dest,q){
   const s=ctx.createBufferSource(),f=ctx.createBiquadFilter(),gn=ctx.createGain();
@@ -66,9 +66,11 @@ function soft(m,t,peak,len,send){ // soft felt-piano / pluck style note
   const f=hz(m),o1=ctx.createOscillator(),o2=ctx.createOscillator(),g2=ctx.createGain(),gn=ctx.createGain(),lp=ctx.createBiquadFilter();
   o1.type="sine";o2.type="sine";o1.frequency.value=f;o2.frequency.value=f*2;o1.detune.value=rnd(-4,4);g2.gain.value=.16;
   lp.type="lowpass";lp.frequency.value=1600;
-  gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(peak,t+.012);gn.gain.exponentialRampToValueAtTime(.0001,t+len);
+  gn.gain.setValueAtTime(0,t);gn.gain.linearRampToValueAtTime(peak,t+.012);
+  gn.gain.exponentialRampToValueAtTime(.0005,t+len);
+  gn.gain.linearRampToValueAtTime(0,t+len+.04);
   o1.connect(lp);o2.connect(g2);g2.connect(lp);lp.connect(gn);gn.connect(dry);gn.connect(verb);if(send)gn.connect(delay);
-  o1.start(t);o2.start(t);o1.stop(t+len+.1);o2.stop(t+len+.1);
+  o1.start(t);o2.start(t);o1.stop(t+len+.05);o2.stop(t+len+.05);
 }
 function info(){onInfo(M.name+" · "+KEYS[root%12]+" major · "+Math.round(bpm)+" BPM")}
 function newChord(t){
@@ -111,7 +113,7 @@ function setMood(name){
   energy=rnd(M.en[0],M.en[1]);bpm=Math.round(rnd(M.bpm[0],M.bpm[1]));
   if(on)info();
 }
-function applyVol(){if(master)master.gain.setTargetAtTime(muted||!(on||ext)?0:vol*1.5,ctx.currentTime,.4)}
+function applyVol(){if(master)master.gain.setTargetAtTime(muted||!(on||ext)?0:vol*0.8,ctx.currentTime,.15)}
 function start(){
   setup();ctx.resume();setMood(mood);
   root=pick([48,50,53,55,57]);cdeg=0;mel=2;ap=0;dir=1;step=0;pendRoot=null;evoN=0;
