@@ -3,6 +3,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+try {
+  if (fs.existsSync(".env")) process.loadEnvFile(".env");
+  else if (fs.existsSync("../.env")) process.loadEnvFile("../.env");
+} catch (e) {}
+
 import stateHandler from "./api/state.mjs";
 import adminHandler from "./api/admin.mjs";
 import loginHandler from "./api/login.mjs";
