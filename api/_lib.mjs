@@ -55,7 +55,7 @@ export async function rd(cmd){
 }
 export const getJ=async k=>{const v=await rd(["GET",k]);return v?JSON.parse(v):null};
 export const setJ=(k,o)=>rd(["SET",k,JSON.stringify(o)]);
-export const DEFAULT={scene:"wait",mood:"groove",timerVisible:false,timer:{total:8100,left:8100,running:false,endAt:0,ver:0},hints:[null,null,null,null,null],hintSecs:25,hintVer:0,evt:[],seq:0};
+export const DEFAULT={scene:"wait",mood:"groove",lampSit:"flute",timerVisible:false,timer:{total:8100,left:8100,running:false,endAt:0,ver:0},hints:[null,null,null,null,null],hintSecs:25,hintVer:0,evt:[],seq:0};
 export async function getState(){return {...DEFAULT,...(await getJ("p2p:state")||{})}}
 const secret=()=>crypto.createHash("sha256").update("p2p|"+(process.env.ADMIN_PASSWORD||"")).digest("hex");
 export const sign=()=>{const exp=Date.now()+12*3600e3;return exp+"."+crypto.createHmac("sha256",secret()).update(String(exp)).digest("hex")};

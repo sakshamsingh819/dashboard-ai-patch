@@ -30,6 +30,7 @@ table{width:100%;border-collapse:collapse}td,th{padding:3px;text-align:left}
 <button data-s="event">⚡ Event (upbeat music + timer)</button>
 <button data-s="off">⏹ Silence</button><br>
 Event music: <select id="mood"><option value="groove">Groove (light, hopping)</option><option value="hype">Hype (livelier)</option><option value="focus">Focus (calm)</option></select>
+Lamp music: <select id="lampSit"><option value="flute">🌿 Soft Flute & Tanpura (welcoming guests)</option><option value="drone">🕉️ Deep Drone & Bowls (quiet / mic speech)</option><option value="sitar">✨ Sitar & Harp</option></select>
 <button id="tv1">Show timer</button><button id="tv0">Hide timer</button></section>
 
 <section><h2>2 · Timer <span id="tl" style="color:#ffb347"></span></h2>
@@ -77,6 +78,7 @@ function status(){const ago=(Date.now()+skew-seen)/1000;$("st").innerHTML=seen&&
 function tl(){const t=S.timer,l=t.running?Math.max(0,Math.ceil((t.endAt-(Date.now()+skew))/1000)):t.left;$("tl").textContent=[Math.floor(l/3600),Math.floor(l%3600/60),l%60].map(n=>String(n).padStart(2,"0")).join(":")+(t.running?" ▶":" ⏸")}
 document.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>act({a:"scene",v:b.dataset.s},"Scene: "+b.dataset.s));
 $("mood").onchange=()=>act({a:"mood",v:$("mood").value},"Event music: "+$("mood").value);
+$("lampSit").onchange=()=>act({a:"lampSit",v:$("lampSit").value},"Lamp situation: "+$("lampSit").value);
 $("tv1").onclick=()=>act({a:"timerVis",v:true},"Timer shown");$("tv0").onclick=()=>act({a:"timerVis",v:false},"Timer hidden");
 $("tset").onclick=()=>act({a:"tset",sec:(+$("h").value||0)*3600+(+$("m").value||0)*60+(+$("s").value||0)},"Timer set");
 $("tstart").onclick=()=>act({a:"tstart"},"Timer started");$("tpause").onclick=()=>act({a:"tpause"},"Timer paused");$("treset").onclick=()=>act({a:"treset"},"Timer reset");
@@ -89,7 +91,7 @@ async function shrink(file){
   let q=.85,d;do{d=c.toDataURL("image/jpeg",q);q-=.1}while(d.length>600000&&q>.3);return d;
 }
 function draw(){
-  if(!S)return;$("mood").value=S.mood;$("hs").value=S.hintSecs;
+  if(!S)return;$("mood").value=S.mood;if(S.lampSit)$("lampSit").value=S.lampSit;$("hs").value=S.hintSecs;
   document.querySelectorAll("[data-s]").forEach(b=>b.classList.toggle("on",b.dataset.s===S.scene));
   const t=S.timer.total;$("h").value=Math.floor(t/3600);$("m").value=Math.floor(t%3600/60);$("s").value=t%60;
   $("slots").innerHTML=S.hints.map((h,i)=>'<div class="slot"><b>Hint '+(i+1)+'</b>'+(h?'<img src="/api/img?i='+i+'&v='+h.v+'">':'<div class="empty">empty</div>')+

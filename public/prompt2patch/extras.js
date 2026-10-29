@@ -4,8 +4,8 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const rnd=(a,b)=>a+Math.random()*(b-a),pick=a=>a[Math.floor(Math.random()*a.length)],sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const css=`body.notimer #clock,body.notimer .bar,body.notimer #label{visibility:hidden}
-body.lamp::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:2;box-shadow:inset 0 0 160px 40px rgba(255,170,40,.45);animation:fl 2.2s ease-in-out infinite alternate}
-@keyframes fl{to{box-shadow:inset 0 0 230px 70px rgba(255,140,20,.7)}}
+body.lamp::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:2;background:radial-gradient(ellipse at 50% 100%,rgba(255,140,20,.25) 0%,rgba(255,90,0,.08) 45%,transparent 75%);box-shadow:inset 0 0 160px 40px rgba(255,160,30,.4);animation:fl 3.2s ease-in-out infinite alternate}
+@keyframes fl{0%{box-shadow:inset 0 0 140px 30px rgba(255,150,20,.35);opacity:.92}100%{box-shadow:inset 0 0 220px 65px rgba(255,180,40,.55);opacity:1}}
 #hint,#lb{position:fixed;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;z-index:3;background:rgba(5,3,12,.93)}
 #hint.on,#lb.on{display:flex}
 .hc{max-width:88vw;text-align:center;animation:pop .6s cubic-bezier(.2,1.6,.4,1)}
@@ -29,7 +29,32 @@ body.lamp::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:2
 #net{position:fixed;right:10px;bottom:10px;width:9px;height:9px;border-radius:50%;background:#888;opacity:.45;z-index:6}`;
 document.head.appendChild(Object.assign(document.createElement("style"),{textContent:css}));
 document.body.insertAdjacentHTML("beforeend",'<div id="hint"></div><div id="lb"></div><div id="net" title="Connection to admin"></div><div id="gate">🔈 Click anywhere once to enable sound</div>');
-$("ctrl").querySelector(".hint").insertAdjacentHTML("beforebegin",'<div class="row"><button data-s="wait">🎬 Waiting</button><button data-s="lamp">🪔 Lamp lighting</button><button data-s="event">⚡ Event music</button><button data-s="off">⏹ Silence</button><button id="tmr">⏱ Timer: On</button><button id="demo">🎭 Demo reveal</button></div>');
+$("ctrl").querySelector(".hint").insertAdjacentHTML("beforebegin",`
+<div class="row">
+  <button data-s="wait">🎬 Waiting</button>
+  <button data-s="lamp">🪔 Lamp lighting</button>
+  <button data-s="event">⚡ Event music</button>
+  <button data-s="off">⏹ Silence</button>
+  <button id="tmr">⏱ Timer: On</button>
+  <button id="demo">🎭 Demo reveal</button>
+</div>
+<div class="row" id="lampControls" style="display:none;align-items:center;gap:6px;flex-wrap:wrap;background:rgba(255,140,20,.14);border:1px solid rgba(255,140,20,.4);border-radius:10px;padding:6px 12px;margin:4px 0">
+  <span style="color:#ffb347;font-weight:700;font-size:12px;margin-right:2px">🪔 Situation:</span>
+  <button class="sit-btn active" data-sit="flute" style="background:#ff8a1f;color:#100600;font-weight:700">🌿 Soft Flute</button>
+  <button class="sit-btn" data-sit="drone">🕉️ Deep Drone & Bowls</button>
+  <button class="sit-btn" data-sit="sitar">✨ Sitar & Harp</button>
+  <button class="sit-btn" data-sit="custom" id="btnUploadLamp" style="border:1px dashed #ffd54a">📂 Upload / Pick MP3...</button>
+  <input type="file" id="lampFilePicker" accept="audio/*" style="display:none">
+</div>
+`);
+
+// Add quick MP3 upload button directly beside Mood button
+if($("moodBtn") && !$("btnAnyUpload")){
+  $("moodBtn").insertAdjacentHTML("afterend",`
+    <button id="btnAnyUpload" title="Load and play any MP3 file from your laptop">📂 Upload MP3</button>
+    <input type="file" id="anyFilePicker" accept="audio/*" style="display:none">
+  `);
+}
 
 /* ---- timer show / hide ---- */
 function timerShow(on){document.body.classList.toggle("notimer",!on);$("tmr").textContent="⏱ Timer: "+(on?"On":"Off")}
@@ -38,21 +63,197 @@ timerShow(false);
 
 /* ---- scenes: waiting BGM -> lamp lighting -> event music ---- */
 let A=null,lampStop=null,order=[],oi=0,errs=0,pending=null,armed=false,curScene="off",curMood="groove";
-function sync(){if(A){A.volume=Math.min(1,+$("vol").value/100);A.muted=Music.isMuted()}}
-$("vol").addEventListener("input",sync);$("mute").addEventListener("click",()=>setTimeout(sync));
-addEventListener("pointerdown",()=>{armed=true;$("gate").style.display="none";if(pending){const p=pending;pending=null;scene(p[0],p[1])}});
-function stopAll(){Music.stop();Music.setExt(false);if(lampStop){lampStop();lampStop=null}if(A){A.pause();A=null}document.body.classList.remove("lamp");$("music").textContent="♪ Music: Off"}
-function scene(s,mood){
-  stopAll();curScene=s;if(mood)curMood=mood;if(!armed&&s!=="off")pending=[s,mood];
-  document.querySelectorAll("[data-s]").forEach(b=>b.style.outline=b.dataset.s===s&&s!=="off"?"2px solid var(--a2)":"");
-  if(s==="event"){Music.setMood(curMood);Music.start();$("music").textContent="♪ Music: On"}
-  else if(s==="wait")wait();else if(s==="lamp")lamp();
+let curLampSit="flute",customLampAudio=null,customLampName="",customGlobalAudio=null;
+
+function sync(){
+  if(A){
+    A.volume=Math.min(1,+$("vol").value/100);
+    A.muted=Music.isMuted();
+  }
 }
+$("vol").addEventListener("input",sync);
+$("mute").addEventListener("click",()=>setTimeout(sync));
+
+addEventListener("pointerdown",()=>{
+  armed=true;
+  $("gate").style.display="none";
+  if(pending){const p=pending;pending=null;scene(p[0],p[1])}
+});
+
+function stopAll(){
+  Music.stop();
+  Music.setExt(false);
+  if(lampStop){lampStop();lampStop=null}
+  if(A){A.pause();A=null}
+  document.body.classList.remove("lamp");
+  $("music").textContent="♪ Music: Off";
+  updateMoodBtnLabel();
+}
+
+function updateMoodBtnLabel(){
+  const mb=$("moodBtn");
+  if(!mb)return;
+  if(curScene==="lamp"){
+    const labels={flute:"Lamp: Soft Flute",drone:"Lamp: Deep Drone",sitar:"Lamp: Sitar",custom:"Lamp: Custom MP3"};
+    mb.textContent=labels[curLampSit]||"Lamp: Music";
+    mb.style.background="#ff8a1f";
+    mb.style.color="#100600";
+    mb.style.borderColor="#ffd54a";
+  }else{
+    mb.textContent="Mood: "+(curMood?curMood.charAt(0).toUpperCase()+curMood.slice(1):"Groove");
+    mb.style.background="";
+    mb.style.color="";
+    mb.style.borderColor="";
+  }
+}
+
+function updateLampButtons(){
+  document.querySelectorAll("[data-sit]").forEach(b=>{
+    const isAct=b.dataset.sit===curLampSit;
+    b.style.background=isAct?"#ff8a1f":"rgba(255,138,31,.18)";
+    b.style.color=isAct?"#100600":"#fff";
+    b.style.borderColor=isAct?"#ffd54a":"var(--line)";
+    b.style.fontWeight=isAct?"700":"600";
+  });
+  updateMoodBtnLabel();
+}
+
+function scene(s,mood){
+  stopAll();
+  curScene=s;
+  if(mood)curMood=mood;
+  if(!armed&&s!=="off")pending=[s,mood];
+  document.querySelectorAll("[data-s]").forEach(b=>b.style.outline=b.dataset.s===s&&s!=="off"?"2px solid var(--a2)":"");
+  const lc=$("lampControls");
+  if(lc)lc.style.display=s==="lamp"?"flex":"none";
+  if(s==="event"){Music.setMood(curMood);Music.start();$("music").textContent="♪ Music: On"}
+  else if(s==="wait")wait();
+  else if(s==="lamp")lamp(curLampSit);
+  updateMoodBtnLabel();
+}
+
 document.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{scene(b.dataset.s);timerShow(b.dataset.s==="event")});
+
+// Robust audio player with preloading and error/buffer tracking
+function playAudioSource(src, title, isLoop){
+  stopAll();
+  const aud=new Audio();
+  aud.src=src;
+  aud.preload="auto";
+  aud.loop=isLoop!==false;
+  A=aud;
+  sync();
+
+  $("now").textContent="⏳ Loading "+title+"…";
+
+  let started=false;
+  const start=()=>{
+    if(started||A!==aud)return;
+    started=true;
+    aud.play().then(()=>{
+      $("now").textContent="🎵 Playing: "+title;
+      $("music").textContent="♪ Music: On";
+    }).catch(err=>{
+      console.warn("Autoplay blocked or play error:", err);
+      $("now").textContent="🔈 Click anywhere once to play: "+title;
+      const onUserGesture=()=>{
+        if(A===aud)aud.play().catch(()=>{});
+        window.removeEventListener("pointerdown", onUserGesture);
+      };
+      window.addEventListener("pointerdown", onUserGesture);
+    });
+  };
+
+  aud.addEventListener("canplay", start, {once:true});
+  aud.addEventListener("loadeddata", start, {once:true});
+  setTimeout(start, 200);
+
+  aud.addEventListener("waiting", ()=>{
+    if(A===aud)$("now").textContent="⏳ Buffering: "+title;
+  });
+  aud.addEventListener("playing", ()=>{
+    if(A===aud)$("now").textContent="🎵 Playing: "+title;
+  });
+  aud.addEventListener("error", ()=>{
+    if(A===aud){
+      console.error("Audio playback error for", title);
+      $("now").textContent="⚠ Audio format error (try standard MP3/WAV)";
+    }
+  });
+
+  lampStop=()=>{
+    if(A===aud){
+      try{aud.pause()}catch(e){}
+      A=null;
+    }
+  };
+
+  return aud;
+}
+
+let customLampAudioUrl=null;
+
+// Quick upload buttons handling
+if($("btnAnyUpload")){
+  $("btnAnyUpload").onclick=()=>$("anyFilePicker").click();
+  $("anyFilePicker").onchange=e=>{
+    const f=e.target.files&&e.target.files[0];
+    if(!f)return;
+    const url=URL.createObjectURL(f);
+    customLampAudioUrl=url;
+    customLampName=f.name;
+    playAudioSource(url, f.name, true);
+  };
+}
+
+if($("btnUploadLamp")){
+  $("btnUploadLamp").onclick=()=>{
+    if(customLampAudioUrl){
+      lamp("custom");
+    }else{
+      $("lampFilePicker").click();
+    }
+  };
+  $("lampFilePicker").onchange=e=>{
+    const f=e.target.files&&e.target.files[0];
+    if(!f)return;
+    customLampAudioUrl=URL.createObjectURL(f);
+    customLampName=f.name;
+    $("btnUploadLamp").textContent="📂 "+(f.name.length>18?f.name.slice(0,16)+"…":f.name);
+    lamp("custom");
+  };
+}
+
+document.querySelectorAll("[data-sit]").forEach(b=>{
+  b.onclick=()=>{
+    if(b.dataset.sit==="custom"&&!customLampAudio&&!window.LAMP_TRACK){
+      $("lampFilePicker").click();
+      return;
+    }
+    lamp(b.dataset.sit);
+  };
+});
+
+// Allow Mood button to cycle through lamp situations when in Lamp Lighting
+const origMoodClick=$("moodBtn")?$("moodBtn").onclick:null;
+if($("moodBtn")){
+  $("moodBtn").onclick=()=>{
+    if(curScene==="lamp"){
+      const sits=["flute","drone","sitar"];
+      if(customLampAudio||window.LAMP_TRACK)sits.push("custom");
+      const nextSit=sits[(sits.indexOf(curLampSit)+1)%sits.length];
+      lamp(nextSit);
+    }else if(origMoodClick){
+      origMoodClick();
+      updateMoodBtnLabel();
+    }
+  };
+}
+
 function wait(){
   const L=window.PLAYLIST||[];errs=0;
   if(L.length){order=[];oi=0;next();return}
-  Music.setMood("focus");Music.start();$("music").textContent="♪ Music: On"; // soft cinematic-style BGM (generated)
+  Music.setMood("focus");Music.start();$("music").textContent="♪ Music: On";
 }
 function next(){
   const L=window.PLAYLIST;if(errs>=L.length){$("now").textContent="Could not load any track";return}
@@ -60,28 +261,282 @@ function next(){
   const t=L[order[oi++]];A=new Audio(t.src);A.onended=next;A.onerror=()=>{errs++;next()};sync();
   A.play().catch(()=>{});$("now").textContent="🎬 "+(t.title||t.src);
 }
-function lamp(){ // Bhoopali-style devotional ambience: tanpura drone + temple bells + soft flute
-  const {ctx,out}=Music.audio();Music.setExt(true);document.body.classList.add("lamp");
-  const sa=146.83,T=[],R=[1,9/8,5/4,3/2,5/3,2,9/4,5/2];let alive=true,k=0,di=2;
-  const bus=ctx.createGain();bus.connect(out);
-  const dl=ctx.createDelay(1),fb=ctx.createGain();dl.delayTime.value=.42;fb.gain.value=.35;dl.connect(fb);fb.connect(dl);dl.connect(bus);
-  const env=(g,t,a,p,d)=>{g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(p,t+a);g.gain.exponentialRampToValueAtTime(.0001,t+a+d)};
-  const wire=g=>{g.connect(bus);g.connect(dl)};
-  function pluck(f,t){const o=ctx.createOscillator(),o2=ctx.createOscillator(),g=ctx.createGain(),lp=ctx.createBiquadFilter();
-    o.type="sawtooth";o2.type="sine";o.frequency.value=f;o2.frequency.value=f*2;lp.type="lowpass";lp.frequency.value=900;
-    o.connect(lp);o2.connect(lp);lp.connect(g);env(g,t,.02,.06,2.6);wire(g);o.start(t);o2.start(t);o.stop(t+2.8);o2.stop(t+2.8)}
-  function bl(f,t,p){[1,2.4,4.1].forEach((m,i)=>{const o=ctx.createOscillator(),g=ctx.createGain();o.type="sine";o.frequency.value=f*m;env(g,t,.005,p/(i+1),2.8-i*.6);wire(g);o.start(t);o.stop(t+3)})}
-  function fl(f,t,d){const o=ctx.createOscillator(),l=ctx.createOscillator(),lg=ctx.createGain(),g=ctx.createGain();
-    o.type="sine";o.frequency.value=f;l.frequency.value=5;lg.gain.value=f*.012;l.connect(lg);lg.connect(o.frequency);
-    g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(.09,t+.35);g.gain.setValueAtTime(.09,t+d);g.gain.linearRampToValueAtTime(0,t+d+.9);
-    o.connect(g);wire(g);o.start(t);l.start(t);o.stop(t+d+1);l.stop(t+d+1)}
-  const later=(fn,ms)=>T.push(setTimeout(fn,ms));
-  const S=[sa*.75,sa,sa,sa/2];
-  (function tp(){if(!alive)return;pluck(S[k++%4],ctx.currentTime+.05);later(tp,1000)})();
-  (function bells(){if(!alive)return;const t=ctx.currentTime+.05;bl(sa*6,t,.1);if(Math.random()<.5)bl(sa*8,t+.35,.07);later(bells,rnd(5000,9000))})();
-  later(function mel(){if(!alive)return;di=Math.max(0,Math.min(7,di+pick([-2,-1,-1,1,1,2])));fl(sa*2*R[di],ctx.currentTime+.05,rnd(1.5,3));later(mel,rnd(2500,4800))},2500);
-  lampStop=()=>{alive=false;T.forEach(clearTimeout);setTimeout(()=>bus.disconnect(),3500)};
-  $("now").textContent="🪔 Lamp lighting";
+
+function lamp(sit){
+  if(sit)curLampSit=sit;
+  stopAll();
+  curScene="lamp";
+  document.body.classList.add("lamp");
+  const lc=$("lampControls");
+  if(lc)lc.style.display="flex";
+  updateLampButtons();
+
+  // 1. If custom MP3 requested or loaded
+  if(curLampSit==="custom"){
+    const trackSrc=customLampAudioUrl||window.LAMP_TRACK;
+    const trackName=customLampName||(window.LAMP_TRACK?window.LAMP_TRACK.split("/").pop():"Custom MP3");
+    if(trackSrc){
+      playAudioSource(trackSrc, trackName, true);
+      $("now").textContent="🪔 Playing: "+trackName;
+      $("music").textContent="♪ Music: On";
+      return;
+    }else{
+      $("lampFilePicker").click();
+      curLampSit="flute";
+      updateLampButtons();
+    }
+  }
+
+  // 2. Generative Indian classical raga soundscape tailored to situation
+  const {ctx, out} = Music.audio();
+  Music.setExt(true);
+
+  const T = [];
+  let alive = true;
+  const later = (fn, ms) => T.push(setTimeout(fn, ms));
+
+  // Master bus with warm acoustic contouring & gentle fade-in
+  const bus = ctx.createGain();
+  bus.gain.setValueAtTime(0.0001, ctx.currentTime);
+  bus.gain.linearRampToValueAtTime(0.85, ctx.currentTime + 1.6);
+
+  // Warm low-pass filter to eliminate any digital treble/harshness
+  const warmFilter = ctx.createBiquadFilter();
+  warmFilter.type = "lowpass";
+  warmFilter.frequency.value = curLampSit==="drone" ? 1800 : 2400;
+  warmFilter.Q.value = 0.5;
+  bus.connect(warmFilter);
+  warmFilter.connect(out);
+
+  // Lush multi-tap temple hall diffusion delay
+  const dl1 = ctx.createDelay(2), dl2 = ctx.createDelay(2);
+  const fb1 = ctx.createGain(), fb2 = ctx.createGain();
+  const dlp1 = ctx.createBiquadFilter(), dlp2 = ctx.createBiquadFilter();
+
+  dl1.delayTime.value = 0.46;
+  dl2.delayTime.value = 0.69;
+  fb1.gain.value = 0.38;
+  fb2.gain.value = 0.32;
+  dlp1.type = "lowpass"; dlp1.frequency.value = 1600;
+  dlp2.type = "lowpass"; dlp2.frequency.value = 1300;
+
+  dl1.connect(dlp1); dlp1.connect(fb1); fb1.connect(dl1); dlp1.connect(bus);
+  dl2.connect(dlp2); dlp2.connect(fb2); fb2.connect(dl2); dlp2.connect(bus);
+  fb1.connect(dl2); fb2.connect(dl1);
+
+  const wire = g => { g.connect(bus); g.connect(dl1); g.connect(dl2); };
+
+  // Auspicious Raga Bhupali (Bhoopali) frequencies: Sa, Re, Ga, Pa, Dha
+  const sa = 146.83;
+  const R = [1, 9/8, 5/4, 3/2, 5/3, 2, 9/4, 5/2];
+
+  // --- A. Continuous Warm Ambient Tanpura Bed (Shree Drone) ---
+  const droneGens = [];
+  [
+    { f: sa * 0.5, type: "sine", g: curLampSit==="drone" ? 0.07 : 0.05 },
+    { f: sa * 0.75, type: "triangle", g: curLampSit==="drone" ? 0.045 : 0.035 },
+    { f: sa, type: "sine", g: 0.045 },
+    { f: sa * 1.003, type: "sine", g: 0.04 }
+  ].forEach(d => {
+    const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    o.type = d.type; o.frequency.value = d.f;
+    lp.type = "lowpass"; lp.frequency.value = 420;
+    g.gain.setValueAtTime(0.0001, ctx.currentTime);
+    g.gain.linearRampToValueAtTime(d.g, ctx.currentTime + 2.5);
+    o.connect(lp); lp.connect(g); g.connect(bus);
+    o.start();
+    droneGens.push({ o, g });
+  });
+
+  // --- B. Acoustic Tanpura Plucks (4 strings: Pa -> Sa -> Sa -> Low Sa) ---
+  const strings = [sa * 0.75, sa, sa * 1.004, sa * 0.5];
+  let sIdx = 0;
+  function pluckTanpura(f, t){
+    const o1 = ctx.createOscillator(), o2 = ctx.createOscillator();
+    const g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    o1.type = "sine"; o1.frequency.value = f;
+    o2.type = "triangle"; o2.frequency.value = f * 2;
+    lp.type = "lowpass";
+    lp.frequency.setValueAtTime(650, t);
+    lp.exponentialRampToValueAtTime(220, t + 4.5);
+
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.045, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 5.2);
+
+    o1.connect(lp); o2.connect(lp); lp.connect(g); wire(g);
+    o1.start(t); o2.start(t);
+    o1.stop(t + 5.5); o2.stop(t + 5.5);
+  }
+
+  (function loopTanpura(){
+    if(!alive) return;
+    pluckTanpura(strings[sIdx % 4], ctx.currentTime + 0.05);
+    sIdx++;
+    later(loopTanpura, 2200);
+  })();
+
+  // --- C. Meditative Bansuri (Indian Bamboo Flute) - Active in "flute" mode ---
+  if(curLampSit === "flute"){
+    const phrases = [
+      [0, 1, 2, 1, 0],
+      [2, 3, 4, 3, 2],
+      [3, 4, 5, 4, 3],
+      [5, 4, 3, 2, 0],
+      [2, 1, 0, -1, 0]
+    ];
+    let pIdx = 0;
+
+    function playFluteNote(f, t, dur, nextF){
+      const o = ctx.createOscillator(), oSub = ctx.createOscillator();
+      const g = ctx.createGain(), lp = ctx.createBiquadFilter();
+      const vib = ctx.createOscillator(), vibGain = ctx.createGain();
+
+      o.type = "sine"; o.frequency.setValueAtTime(f, t);
+      oSub.type = "sine"; oSub.frequency.setValueAtTime(f * 0.5, t);
+
+      if(nextF){
+        o.frequency.setValueAtTime(f, t + dur * 0.7);
+        o.frequency.linearRampToValueAtTime(nextF, t + dur);
+      }
+
+      vib.frequency.value = 4.2;
+      vibGain.gain.setValueAtTime(0, t);
+      vibGain.gain.linearRampToValueAtTime(f * 0.012, t + dur * 0.8);
+      vib.connect(vibGain);
+      vibGain.connect(o.frequency);
+
+      lp.type = "lowpass"; lp.frequency.value = 1750;
+
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.055, t + 0.75);
+      g.gain.setValueAtTime(0.055, t + dur * 0.85);
+      g.gain.linearRampToValueAtTime(0.0001, t + dur + 0.6);
+
+      o.connect(lp); oSub.connect(lp); lp.connect(g); wire(g);
+      o.start(t); oSub.start(t); vib.start(t);
+      o.stop(t + dur + 0.8); oSub.stop(t + dur + 0.8); vib.stop(t + dur + 0.8);
+    }
+
+    function playFlutePhrase(){
+      if(!alive) return;
+      const phrase = phrases[pIdx % phrases.length];
+      pIdx++;
+      let noteTime = ctx.currentTime + 0.1;
+
+      for(let i = 0; i < phrase.length; i++){
+        const deg = phrase[i];
+        const freq = deg < 0 ? sa * (5/6) : sa * 2 * (R[deg] || 1);
+        const nextDeg = phrase[i + 1];
+        const nextFreq = nextDeg !== undefined ? (nextDeg < 0 ? sa * (5/6) : sa * 2 * (R[nextDeg] || 1)) : 0;
+        const noteDur = rnd(2.2, 3.2);
+
+        playFluteNote(freq, noteTime, noteDur, nextFreq);
+        noteTime += noteDur * 0.85;
+      }
+
+      const pauseMs = rnd(4500, 7500);
+      later(playFlutePhrase, (noteTime - ctx.currentTime) * 1000 + pauseMs);
+    }
+
+    later(playFlutePhrase, 2600);
+  }
+
+  // --- D. Auspicious Temple Singing Bowl / Bronze Diya Bell ---
+  function bellBowl(f, t){
+    [1, 2.76, 5.4].forEach((m, i) => {
+      const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+      o.type = "sine"; o.frequency.value = f * m;
+      lp.type = "lowpass"; lp.frequency.value = 1150;
+
+      const peak = (curLampSit==="drone" ? 0.045 : 0.035) / (i + 1);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(peak, t + 0.04);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 6.5 - i * 0.8);
+
+      o.connect(lp); lp.connect(g); wire(g);
+      o.start(t); o.stop(t + 7.0);
+    });
+  }
+
+  (function loopBells(){
+    if(!alive) return;
+    bellBowl(sa * 2.5, ctx.currentTime + 0.1);
+    later(loopBells, curLampSit==="drone" ? rnd(7000, 12000) : rnd(11000, 18000));
+  })();
+
+  // --- E. Sitar & Swarmandal Harp ---
+  function sitarPluck(f, t){
+    const o = ctx.createOscillator(), o2 = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+    o.type = "triangle"; o2.type = "sine";
+    o.frequency.value = f; o2.frequency.value = f * 2;
+    lp.type = "lowpass"; lp.frequency.setValueAtTime(1400, t);
+    lp.exponentialRampToValueAtTime(450, t + 1.8);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.035, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 2.2);
+    o.connect(lp); o2.connect(lp); lp.connect(g); wire(g);
+    o.start(t); o2.start(t); o.stop(t + 2.4); o2.stop(t + 2.4);
+  }
+
+  function swarmandalSweep(t){
+    const sweep = [0, 1, 2, 3, 4, 5];
+    sweep.forEach((deg, i) => {
+      const f = sa * (R[deg] || 1);
+      const noteT = t + i * 0.12;
+      const o = ctx.createOscillator(), g = ctx.createGain(), lp = ctx.createBiquadFilter();
+      o.type = "sine"; o.frequency.value = f * 2;
+      lp.type = "lowpass"; lp.frequency.value = 1400;
+      g.gain.setValueAtTime(0.0001, noteT);
+      g.gain.linearRampToValueAtTime(0.025, noteT + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0001, noteT + 2.4);
+      o.connect(lp); lp.connect(g); wire(g);
+      o.start(noteT); o.stop(noteT + 2.6);
+    });
+  }
+
+  if(curLampSit === "sitar"){
+    const sitarNotes = [0, 2, 3, 4, 5, 4, 3, 2];
+    let si = 0;
+    (function loopSitar(){
+      if(!alive) return;
+      const deg = sitarNotes[si++ % sitarNotes.length];
+      sitarPluck(sa * (R[deg] || 1) * 2, ctx.currentTime + 0.05);
+      if(Math.random() < 0.35) swarmandalSweep(ctx.currentTime + 0.4);
+      later(loopSitar, rnd(1800, 3200));
+    })();
+  } else if(curLampSit === "flute"){
+    (function loopSwarmandal(){
+      if(!alive) return;
+      swarmandalSweep(ctx.currentTime + 0.2);
+      later(loopSwarmandal, rnd(16000, 26000));
+    })();
+  }
+
+  // --- F. Graceful Stop Handler ---
+  lampStop = () => {
+    alive = false;
+    T.forEach(clearTimeout);
+
+    try {
+      bus.gain.setValueAtTime(bus.gain.value, ctx.currentTime);
+      bus.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 2.0);
+      droneGens.forEach(d => {
+        d.g.gain.setValueAtTime(d.g.gain.value, ctx.currentTime);
+        d.g.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 2.0);
+        setTimeout(() => { try { d.o.stop(); } catch(e){} }, 2200);
+      });
+      setTimeout(() => { try { bus.disconnect(); } catch(e){} }, 2500);
+    } catch(e){}
+  };
+
+  const sitLabels = {
+    flute: "🪔 Lamp: Soft Flute & Tanpura",
+    drone: "🕉️ Lamp: Deep Drone & Bowls (Quiet)",
+    sitar: "✨ Lamp: Sitar & Swarmandal"
+  };
+  $("now").textContent = sitLabels[curLampSit] || "🪔 Lamp lighting";
+  $("music").textContent = "♪ Music: On";
 }
 
 
@@ -151,13 +606,32 @@ $("demo").onclick=()=>reveal([["Team Alpha",92],["Team Bravo",88],["Team Charlie
 
 /* ---- sync with the admin dashboard (polls the server every 3 s) ---- */
 let off=0,lastSeq=null,tv=null,tver=-1,hv=-1,cs=null,cm=null,pn=0;
+let lastServerScene=null,lastServerLampSit=null;
 const net=ok=>{$("net").style.background=ok?"#3c6":"#f44"};
 function handle(e){
   if(e.type==="hint")showHint(e.p.i);else if(e.type==="teaser")lbIntro();
   else if(e.type==="reveal")reveal(e.p.teams||[]);else if(e.type==="lbhide")lbHide();
 }
 function apply(s){
-  if(s.scene!==cs||(s.scene==="event"&&s.mood!==cm)){cs=s.scene;cm=s.mood;scene(s.scene,s.mood)}
+  // Only change scene if server scene actually changed from previous server poll!
+  if(lastServerScene===null){
+    lastServerScene=s.scene;
+    cs=s.scene;cm=s.mood;
+    scene(s.scene,s.mood);
+  } else if(s.scene!==lastServerScene||(s.scene==="event"&&s.mood!==cm)){
+    lastServerScene=s.scene;
+    cs=s.scene;cm=s.mood;
+    scene(s.scene,s.mood);
+  }
+
+  // Only change lampSit if server lampSit actually changed from previous poll (admin explicit change)!
+  if(lastServerLampSit===null){
+    lastServerLampSit=s.lampSit||"flute";
+  } else if(s.lampSit && s.lampSit!==lastServerLampSit && curScene==="lamp"){
+    lastServerLampSit=s.lampSit;
+    lamp(s.lampSit);
+  }
+
   if(s.timerVisible!==tv){tv=s.timerVisible;timerShow(tv)}
   if(s.timer.ver!==tver){tver=s.timer.ver;shown.clear();TimerAPI.apply(s.timer,off)}
   if(s.hintVer!==hv){hv=s.hintVer;metaHints=s.hints;shown.clear();metaHints.forEach((h,i)=>{if(h)new Image().src="/api/img?i="+i+"&v="+h.v})}

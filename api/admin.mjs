@@ -12,6 +12,7 @@ export default async function handler(req,res){
       case "get":{const seen=+(await rd(["GET","p2p:seen"]))||0;return json(res,200,{s,scores:await getJ("p2p:scores")||[],seen,now})}
       case "scene":s.scene=["wait","lamp","event","off"].includes(b.v)?b.v:"off";s.timerVisible=s.scene==="event";break;
       case "mood":s.mood=["focus","groove","hype"].includes(b.v)?b.v:"groove";break;
+      case "lampSit":s.lampSit=["flute","drone","sitar"].includes(b.v)?b.v:"flute";break;
       case "timerVis":s.timerVisible=!!b.v;break;
       case "tset":{const t=clamp(+b.sec|0,1,86399);s.timer={total:t,left:t,running:false,endAt:0,ver:T.ver+1};break}
       case "tstart":if(!T.running&&T.left>0)s.timer={...T,running:true,endAt:now+T.left*1000,ver:T.ver+1};break;
