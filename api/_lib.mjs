@@ -2,6 +2,13 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
+try {
+  const envPath = path.resolve(process.cwd(), ".env");
+  if (fs.existsSync(envPath) && process.loadEnvFile) {
+    process.loadEnvFile(envPath);
+  }
+} catch (e) {}
+
 if (!process.env.ADMIN_PASSWORD) {
   process.env.ADMIN_PASSWORD = "admin123";
 }
